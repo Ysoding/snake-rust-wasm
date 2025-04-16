@@ -4,13 +4,29 @@
 <head>
   <meta charset="utf-8" />
   <title>Snake Rust WASM</title>
+  <style>
+    #app {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      height: 100%;
+      touch-action: none;
+    }
+
+    body {
+      overflow-y: hidden;
+    }
+  </style>
 </head>
 
 <body>
+  <canvas id="canvas" width="1600" height="900"></canvas>
   <script type="module">
-    import init, { greet } from "./pkg/snake_rust_wasm.js";
+    import init from "./pkg/snake_rust_wasm.js";
+
     init().then(() => {
-      greet("WebAssembly");
+      console.log("WebAssembly module initialized");
     });
   </script>
 </body>
