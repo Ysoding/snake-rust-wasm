@@ -1,0 +1,24 @@
+{
+  "name": "snake_rust_wasm",
+  "type": "module",
+  "collaborators": [
+    "Xmchx sunhuayangak47@gmail.com"
+  ],
+  "description": "Snake",
+  "version": "0.1.0",
+  "license": "MIT/Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ysoding/snake-rust-wasm"
+  },
+  "files": [
+    "snake_rust_wasm_bg.wasm",
+    "snake_rust_wasm.js",
+    "snake_rust_wasm.d.ts"
+  ],
+  "main": "snake_rust_wasm.js",
+  "types": "snake_rust_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
