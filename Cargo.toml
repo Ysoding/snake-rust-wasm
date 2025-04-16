@@ -2,5 +2,13 @@
 name = "snake_rust_wasm"
 version = "0.1.0"
 edition = "2024"
+authors = ["Xmchx sunhuayangak47@gmail.com"]
+description = "Snake"
+license = "MIT/Apache-2.0"
+repository = "https://github.com/Ysoding/snake-rust-wasm"
 
 [dependencies]
+wasm-bindgen = "0.2"
+
+[lib]
+crate-type = ["cdylib"]
