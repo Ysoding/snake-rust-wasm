@@ -1,42 +1,22 @@
-use std::{cell::RefCell, rc::Rc};
+use std::cell::RefCell;
+
 use wasm_bindgen::prelude::*;
-use web_sys::{Element, EventTarget, KeyboardEvent, console};
+use web_sys::{CanvasRenderingContext2d, Document, HtmlCanvasElement, KeyboardEvent, console};
 
-fn window() -> web_sys::Window {
-    web_sys::window().expect("no global `window` exists")
-}
+mod game;
+use game::*;
+mod utils;
+use utils::*;
+mod render;
+use render::*;
 
-fn request_animation_frame(f: &Closure<dyn FnMut()>) {
-    window()
-        .request_animation_frame(f.as_ref().unchecked_ref())
-        .expect("should register `requestAnimationFrame` OK");
-}
-
-fn document() -> web_sys::Document {
-    window()
-        .document()
-        .expect("should have a document on window")
-}
-
-fn body() -> web_sys::HtmlElement {
-    document().body().expect("document should have a body")
+thread_local! {
+    static GAME: RefCell<Option<Game<WebPlatformRenderer>>> = RefCell::new(None);
+    static PREV_TIMESTAMP: RefCell<f64> = RefCell::new(0.0);
 }
 
 #[wasm_bindgen(start)]
-fn start() -> Result<(), JsValue> {
-    let canvas = document().get_element_by_id("canvas").unwrap();
-    let canvas: web_sys::HtmlCanvasElement = canvas
-        .dyn_into::<web_sys::HtmlCanvasElement>()
-        .map_err(|_| ())
-        .unwrap();
-
-    let ctx = canvas
-        .get_context("2d")
-        .unwrap()
-        .unwrap()
-        .dyn_into::<web_sys::CanvasRenderingContext2d>()
-        .unwrap();
-
+fn main() {
     let keydown = Closure::wrap(Box::new(move |e: KeyboardEvent| {
         console::log_1(&format!("aaa: {}", e.key()).into());
     }) as Box<dyn FnMut(_)>);
@@ -47,32 +27,57 @@ fn start() -> Result<(), JsValue> {
 
     keydown.forget();
 
-    let f = Rc::new(RefCell::new(None));
-    let g = f.clone();
+    let canvas = document().get_element_by_id("canvas").unwrap();
+    let canvas: web_sys::HtmlCanvasElement = canvas
+        .dyn_into::<web_sys::HtmlCanvasElement>()
+        .map_err(|_| ())
+        .unwrap();
+    let ctx = canvas
+        .get_context("2d")
+        .unwrap()
+        .unwrap()
+        .dyn_into::<web_sys::CanvasRenderingContext2d>()
+        .unwrap();
 
-    let mut i = 0;
-    *g.borrow_mut() = Some(Closure::new(move || {
-        if i > 300 {
-            // Drop our handle to this closure so that it will get cleaned
-            // up once we return.
-            body().set_text_content(Some("All done!"));
+    GAME.with(|game| {
+        let mut g = Game::new(WebPlatformRenderer::new(ctx));
+        g.restart(canvas.width(), canvas.height());
+        *game.borrow_mut() = Some(g);
+    });
 
-            let _ = f.borrow_mut().take();
-            return;
-        }
+    game_loop_fn_start();
+}
 
-        // Set the body's text content to how many times this
-        // requestAnimationFrame callback has fired.
-        i += 1;
-        let text = format!("requestAnimationFrame has been called {} times.", i);
+fn game_loop_fn_start() {
+    window()
+        .request_animation_frame(
+            Closure::wrap(Box::new(|ts| game_loop_fn(ts)) as Box<dyn FnMut(f64)>)
+                .into_js_value()
+                .unchecked_ref(),
+        )
+        .unwrap();
+}
 
-        body().set_text_content(Some(&text));
-        console::log_1(&text.into());
+fn game_loop_fn(timestamp: f64) {
+    PREV_TIMESTAMP.with(|prev| {
+        let dt = (timestamp - *prev.borrow()) as f64 / 1000.0;
+        *prev.borrow_mut() = timestamp;
 
-        request_animation_frame(f.borrow().as_ref().unwrap());
-    }));
+        GAME.with(|game| {
+            let mut game_ref = game.borrow_mut();
+            let game = game_ref.as_mut().unwrap();
+            game.update(dt);
+            game.render();
+        });
+    });
 
-    request_animation_frame(g.borrow().as_ref().unwrap());
+    game_loop_fn_start();
+}
 
-    Ok(())
+fn window() -> web_sys::Window {
+    web_sys::window().expect("no global `window` exists")
+}
+
+fn document() -> web_sys::Document {
+    window().document().expect("no document")
 }
