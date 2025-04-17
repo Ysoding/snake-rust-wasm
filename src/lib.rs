@@ -16,6 +16,8 @@ thread_local! {
 
 #[wasm_bindgen(start)]
 fn main() {
+    console_error_panic_hook::set_once();
+
     let keydown = Closure::wrap(Box::new(move |e: KeyboardEvent| {
         console::log_1(&format!("aaa: {}", e.key()).into());
     }) as Box<dyn FnMut(_)>);

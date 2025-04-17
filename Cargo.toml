@@ -7,7 +7,14 @@ description = "Snake"
 license = "MIT/Apache-2.0"
 repository = "https://github.com/Ysoding/snake-rust-wasm"
 
+[features]
+default = ["dev"]
+dev = []
+dynamic_camera = []
+
+
 [dependencies]
+console_error_panic_hook = "0.1.7"
 wasm-bindgen = "0.2"
 web-sys = { version = "0.3.77", features = [
   'CanvasRenderingContext2d',
@@ -22,3 +29,7 @@ web-sys = { version = "0.3.77", features = [
 
 [lib]
 crate-type = ["cdylib"]
+
+
+[profile.release]
+panic = "unwind"
