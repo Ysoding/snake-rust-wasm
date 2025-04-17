@@ -1,6 +1,7 @@
 ## Run
 
+> need Rust/Python wasm-pack
+
 ```sh
-wasm-pack build --target web
-python -m http.server 6969
+make run
 ```

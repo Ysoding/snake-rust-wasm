@@ -1,13 +1,12 @@
 use std::cell::RefCell;
 
 use wasm_bindgen::prelude::*;
-use web_sys::{CanvasRenderingContext2d, Document, HtmlCanvasElement, KeyboardEvent, console};
+use web_sys::{KeyboardEvent, console};
 
 mod game;
 use game::*;
-mod utils;
-use utils::*;
 mod render;
+mod utils;
 use render::*;
 
 thread_local! {

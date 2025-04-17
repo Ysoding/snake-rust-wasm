@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use crate::{
     render::PlatformRenderer,
-    utils::{ilerpf, lerpf},
+    utils::{lerpf, rand},
 };
 
 // Constants
@@ -19,14 +19,6 @@ const EGG_SPINE_COLOR: u32 = 0xFF3166BB;
 const SNAKE_SPINE_THICKNESS_PERCENT: f32 = 0.05;
 const SNAKE_INIT_SIZE: usize = 3;
 const STEP_INTERVAL: f32 = 0.125;
-const KEY_LEFT: char = 'a';
-const KEY_RIGHT: char = 'd';
-const KEY_UP: char = 'w';
-const KEY_DOWN: char = 's';
-const KEY_ACCEPT: char = ' ';
-const KEY_RESTART: char = 'r';
-const RAND_A: u64 = 6364136223846793005;
-const RAND_C: u64 = 1442695040888963407;
 const SCORE_PADDING: i32 = 100;
 const SCORE_FONT_SIZE: u32 = 48;
 const SCORE_FONT_COLOR: u32 = 0xFFFFFFFF;
@@ -36,7 +28,6 @@ const GAMEOVER_FONT_COLOR: u32 = SCORE_FONT_COLOR;
 const GAMEOVER_FONT_SIZE: u32 = SCORE_FONT_SIZE;
 const RANDOM_EGG_MAX_ATTEMPTS: u32 = 1000;
 const SNAKE_CAP: usize = (ROWS * COLS) as usize;
-const DIR_QUEUE_CAP: usize = 3;
 const SNAKE_INIT_ROW: i32 = ROWS / 2;
 
 enum Dir {
@@ -52,7 +43,7 @@ enum State {
     Gameover,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 struct Vec2<I> {
     x: I,
     y: I,
@@ -69,7 +60,12 @@ type Cell = Vec2<i32>;
 
 struct Snake {
     body: VecDeque<Cell>,
-    begin: u32,
+}
+
+impl Snake {
+    pub fn contains_cell(&self, cell: &Cell) -> bool {
+        self.body.contains(cell)
+    }
 }
 
 pub struct Game<P: PlatformRenderer> {
@@ -81,10 +77,13 @@ pub struct Game<P: PlatformRenderer> {
     score: u32,
 
     snake: Snake,
+    egg: Cell,
 
     camera_pos: Vec2<f32>,
 
     platform_renderer: P,
+
+    eating_egg: bool,
 }
 
 impl<P: PlatformRenderer> Game<P> {
@@ -97,10 +96,11 @@ impl<P: PlatformRenderer> Game<P> {
             score: 0,
             snake: Snake {
                 body: VecDeque::with_capacity(SNAKE_CAP),
-                begin: 0,
             },
             camera_pos: Vec2::default(),
             platform_renderer,
+            eating_egg: false,
+            egg: Cell::default(),
         }
     }
 
@@ -114,17 +114,51 @@ impl<P: PlatformRenderer> Game<P> {
         self.state = State::Gameplay;
         self.dir = Dir::Right;
         self.score = 0;
+
+        self.random_egg(true);
     }
 
-    pub fn update(&mut self, dt: f64) {}
+    pub fn update(&mut self, delta_time: f64) {}
 
     pub fn render(&self) {
         match self.state {
             State::Gameplay => {
                 self.background_render();
+                self.egg_render();
             }
             State::Pause => {}
             State::Gameover => {}
+        }
+    }
+
+    fn random_egg(&mut self, first: bool) {
+        let (col1, col2, row1, row2) = (0, COLS - 1, 0, ROWS - 1);
+        let mut attempt = 0;
+        loop {
+            self.egg.x = (rand() % (col2 - col1 + 1) as u32) as i32 + col1;
+            self.egg.y = (rand() % (row2 - row1 + 1) as u32) as i32 + row1;
+            attempt += 1;
+
+            if !(self.snake.contains_cell(&self.egg) || (first && self.egg.y == SNAKE_INIT_ROW))
+                || attempt >= RANDOM_EGG_MAX_ATTEMPTS
+            {
+                break;
+            }
+        }
+        if attempt >= RANDOM_EGG_MAX_ATTEMPTS {
+            panic!("Max egg placement attempts reached");
+        }
+    }
+
+    fn egg_render(&self) {
+        if self.eating_egg {
+        } else {
+            self.fill_cell(&self.egg, EGG_BODY_COLOR, 1.0);
+            self.fill_cell(
+                &self.egg,
+                EGG_SPINE_COLOR,
+                SNAKE_SPINE_THICKNESS_PERCENT * 2.0,
+            );
         }
     }
 
@@ -143,12 +177,12 @@ impl<P: PlatformRenderer> Game<P> {
                     CELL2_COLOR
                 };
                 let cell = Cell { x: col, y: row };
-                self.fill_cell(cell, color, 1.0);
+                self.fill_cell(&cell, color, 1.0);
             }
         }
     }
 
-    fn cell_2_rect(&self, cell: Cell) -> Rect {
+    fn cell_2_rect(&self, cell: &Cell) -> Rect {
         Rect {
             x: (cell.x * CELL_SIZE) as f32,
             y: (cell.y * CELL_SIZE) as f32,
@@ -166,8 +200,8 @@ impl<P: PlatformRenderer> Game<P> {
         return r;
     }
 
-    fn fill_cell(&self, cell: Cell, color: u32, a: f32) {
-        self.fill_rect(self.scale_rect(self.cell_2_rect(cell), a), color);
+    fn fill_cell(&self, cell: &Cell, color: u32, a: f32) {
+        self.fill_rect(self.scale_rect(self.cell_2_rect(&cell), a), color);
     }
 
     fn fill_rect(&self, rect: Rect, color: u32) {
