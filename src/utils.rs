@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 pub fn lerpf(a: f32, b: f32, t: f32) -> f32 {
     (b - a) * t + a
 }
@@ -19,4 +21,11 @@ pub fn rand() -> u32 {
 
 pub fn emod(a: i32, b: i32) -> i32 {
     (a % b + b) % b
+}
+
+pub fn ring_displace_back<T>(ring: &mut VecDeque<T>, item: T, capacity: usize) {
+    if ring.len() == capacity {
+        ring.pop_front();
+    }
+    ring.push_back(item);
 }

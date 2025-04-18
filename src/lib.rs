@@ -19,7 +19,11 @@ fn main() {
     console_error_panic_hook::set_once();
 
     let keydown = Closure::wrap(Box::new(move |e: KeyboardEvent| {
-        console::log_1(&format!("aaa: {}", e.key()).into());
+        GAME.with(|game| {
+            let mut game_ref = game.borrow_mut();
+            let game = game_ref.as_mut().unwrap();
+            game.keydown(&e.key());
+        });
     }) as Box<dyn FnMut(_)>);
 
     document()

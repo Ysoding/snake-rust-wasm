@@ -1,14 +1,17 @@
+use std::rc::Rc;
+
 use web_sys::CanvasRenderingContext2d;
 
 use super::PlatformRenderer;
 
+#[derive(Clone)]
 pub struct WebPlatformRenderer {
-    ctx: CanvasRenderingContext2d,
+    ctx: Rc<CanvasRenderingContext2d>,
 }
 
 impl WebPlatformRenderer {
     pub fn new(ctx: CanvasRenderingContext2d) -> Self {
-        Self { ctx }
+        Self { ctx: Rc::new(ctx) }
     }
 
     fn color_hex(&self, color: u32) -> String {
@@ -37,7 +40,7 @@ impl PlatformRenderer for WebPlatformRenderer {
         let hex = self.color_hex(color);
         self.ctx.set_fill_style_str(&hex);
 
-        self.ctx.set_font(&format!("{}px", font_size));
+        self.ctx.set_font(&format!("{}px Verdana", font_size));
         self.ctx.fill_text(text, x as f64, y as f64).unwrap();
     }
 }
