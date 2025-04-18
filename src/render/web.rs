@@ -26,31 +26,18 @@ impl PlatformRenderer for WebPlatformRenderer {
         self.ctx.set_fill_style_str(&hex);
         self.ctx.fill_rect(x as f64, y as f64, w as f64, h as f64);
     }
+
+    fn stroke_rect(&self, x: i32, y: i32, w: i32, h: i32, color: u32) {
+        let hex = self.color_hex(color);
+        self.ctx.set_stroke_style_str(&hex);
+        self.ctx.stroke_rect(x as f64, y as f64, w as f64, h as f64);
+    }
+
+    fn fill_text(&self, x: i32, y: i32, text: &str, font_size: u32, color: u32) {
+        let hex = self.color_hex(color);
+        self.ctx.set_fill_style_str(&hex);
+
+        self.ctx.set_font(&format!("{}px", font_size));
+        self.ctx.fill_text(text, x as f64, y as f64).unwrap();
+    }
 }
-
-// pub fn platform_stroke_rect(
-//     ctx: &CanvasRenderingContext2d,
-//     x: f64,
-//     y: f64,
-//     w: f64,
-//     h: f64,
-//     color: u32,
-// ) {
-//     let hex = format!("#{:08X}", color);
-//     ctx.set_fill_style_str(&hex);
-//     ctx.stroke_rect(x, y, w, h);
-// }
-
-// pub fn platform_fill_text(
-//     ctx: &CanvasRenderingContext2d,
-//     x: f64,
-//     y: f64,
-//     text: &str,
-//     size: u32,
-//     color: u32,
-// ) {
-//     let hex = format!("#{:08X}", color);
-//     ctx.set_fill_style_str(&hex);
-//     ctx.set_font(&format!("{}px", size));
-//     ctx.fill_text(text, x, y).unwrap();
-// }

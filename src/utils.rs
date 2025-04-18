@@ -16,3 +16,7 @@ pub fn rand() -> u32 {
         ((RAND_STATE >> 32) & 0xFFFFFFFF) as u32
     }
 }
+
+pub fn emod(a: i32, b: i32) -> i32 {
+    (a % b + b) % b
+}

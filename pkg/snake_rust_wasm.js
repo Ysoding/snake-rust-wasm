@@ -203,7 +203,7 @@ export function main() {
 }
 
 function __wbg_adapter_16(arg0, arg1, arg2) {
-    wasm._dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h9c77e9230a079605(arg0, arg1, arg2);
+    wasm._dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h80890978da1beca7(arg0, arg1, arg2);
 }
 
 function __wbg_adapter_19(arg0, arg1, arg2) {
@@ -336,6 +336,9 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_setfillStyle_2205fca942c641ba = function(arg0, arg1, arg2) {
         arg0.fillStyle = getStringFromWasm0(arg1, arg2);
     };
+    imports.wbg.__wbg_setstrokeStyle_415833f3f0eb5076 = function(arg0, arg1, arg2) {
+        arg0.strokeStyle = getStringFromWasm0(arg1, arg2);
+    };
     imports.wbg.__wbg_stack_0ed75d68575b0f3c = function(arg0, arg1) {
         const ret = arg1.stack;
         const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
@@ -359,15 +362,18 @@ function __wbg_get_imports() {
         const ret = typeof window === 'undefined' ? null : window;
         return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
     };
+    imports.wbg.__wbg_strokeRect_bfa0a2d3cd838033 = function(arg0, arg1, arg2, arg3, arg4) {
+        arg0.strokeRect(arg1, arg2, arg3, arg4);
+    };
     imports.wbg.__wbg_width_5dde457d606ba683 = function(arg0) {
         const ret = arg0.width;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper33 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper35 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 3, __wbg_adapter_16);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper35 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper37 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 3, __wbg_adapter_19);
         return ret;
     };

@@ -11,7 +11,7 @@ use render::*;
 
 thread_local! {
     static GAME: RefCell<Option<Game<WebPlatformRenderer>>> = RefCell::new(None);
-    static PREV_TIMESTAMP: RefCell<f64> = RefCell::new(0.0);
+    static PREV_TIMESTAMP: RefCell<f32> = RefCell::new(0.0);
 }
 
 #[wasm_bindgen(start)]
@@ -52,16 +52,16 @@ fn main() {
 fn game_loop_fn_start() {
     window()
         .request_animation_frame(
-            Closure::wrap(Box::new(|ts| game_loop_fn(ts)) as Box<dyn FnMut(f64)>)
+            Closure::wrap(Box::new(|ts| game_loop_fn(ts)) as Box<dyn FnMut(f32)>)
                 .into_js_value()
                 .unchecked_ref(),
         )
         .unwrap();
 }
 
-fn game_loop_fn(timestamp: f64) {
+fn game_loop_fn(timestamp: f32) {
     PREV_TIMESTAMP.with(|prev| {
-        let dt = (timestamp - *prev.borrow()) as f64 / 1000.0;
+        let dt = (timestamp - *prev.borrow()) as f32 / 1000.0;
         *prev.borrow_mut() = timestamp;
 
         GAME.with(|game| {
