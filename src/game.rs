@@ -264,6 +264,10 @@ pub struct Game<P: PlatformRenderer> {
     step_cooldown: f32,
     eating_egg: bool,
     camera_pos: Vec2<f32>,
+    eating_timer: f32,
+
+    body_start_color: u32,
+    body_end_color: u32,
 
     snake: Snake,
     dead_snake: DeadSnake,
@@ -278,6 +282,7 @@ pub struct Game<P: PlatformRenderer> {
 impl<P: PlatformRenderer> Game<P> {
     pub fn new(platform_renderer: P) -> Self {
         Self {
+            eating_timer: 0.0,
             width: 0,
             height: 0,
             dir: Direction::Right,
@@ -299,6 +304,8 @@ impl<P: PlatformRenderer> Game<P> {
                 vels: Vec::new(),
                 masks: Vec::new(),
             },
+            body_start_color: 0xFF00FF00,
+            body_end_color: 0xFF0000FF,
         }
     }
 
@@ -402,6 +409,14 @@ impl<P: PlatformRenderer> Game<P> {
         #[cfg(feature = "dev")]
         {
             dt *= self.dt_scale;
+        }
+
+        if self.eating_egg {
+            self.eating_timer += dt;
+            if self.eating_timer > 1.0 {
+                self.eating_egg = false;
+                self.eating_timer = 0.0;
+            }
         }
 
         match self.state {
@@ -541,6 +556,19 @@ impl<P: PlatformRenderer> Game<P> {
         }
     }
 
+    fn lerp_color(&self, color1: u32, color2: u32, t: f32) -> u32 {
+        let r1 = (color1 >> 16) & 0xFF;
+        let g1 = (color1 >> 8) & 0xFF;
+        let b1 = color1 & 0xFF;
+        let r2 = (color2 >> 16) & 0xFF;
+        let g2 = (color2 >> 8) & 0xFF;
+        let b2 = color2 & 0xFF;
+        let r = (r1 as f32 + (r2 as f32 - r1 as f32) * t).round() as u32;
+        let g = (g1 as f32 + (g2 as f32 - g1 as f32) * t).round() as u32;
+        let b = (b1 as f32 + (b2 as f32 - b1 as f32) * t).round() as u32;
+        0xFF000000 | (r << 16) | (g << 8) | b
+    }
+
     fn snake_render(&self) {
         let t = self.step_cooldown / STEP_INTERVAL;
 
@@ -561,19 +589,25 @@ impl<P: PlatformRenderer> Game<P> {
             .adjust_2_slide_sides(tail_dir, if self.eating_egg { 1.0 } else { 1.0 - t });
 
         if self.eating_egg {
-            self.fill_cell(head_cell, EGG_BODY_COLOR, 1.0);
-            self.fill_cell(
-                head_cell,
-                EGG_SPINE_COLOR,
-                SNAKE_SPINE_THICKNESS_PERCENT * 2.0,
-            );
+            // self.fill_cell(head_cell, EGG_BODY_COLOR, 1.0);
+            // self.fill_cell(
+            //     head_cell,
+            //     EGG_SPINE_COLOR,
+            //     SNAKE_SPINE_THICKNESS_PERCENT * 2.0,
+            // );
+            let t = self.eating_timer;
+            let color = self.lerp_color(EGG_BODY_COLOR, SNAKE_HEAD_COLOR, t.sin()); // 动态颜色
+            self.fill_cell(head_cell, color, 1.0);
+        } else {
+            self.fill_sides(&head_slide_sides, SNAKE_HEAD_COLOR);
         }
 
-        self.fill_sides(&head_slide_sides, SNAKE_HEAD_COLOR);
         self.fill_sides(&tail_slide_sides, SNAKE_TAIL_COLOR);
 
         for i in 1..self.snake.size() - 1 {
-            self.fill_cell(self.snake.items.get(i).unwrap(), SNAKE_BODY_COLOR, 1.0);
+            let t = (i - 1) as f32 / (self.snake.size() - 2) as f32;
+            let color = self.lerp_color(self.body_start_color, self.body_end_color, t);
+            self.fill_cell(self.snake.items.get(i).unwrap(), color, 1.0);
         }
 
         // body spine
