@@ -4,7 +4,7 @@ use web_sys::console;
 
 use crate::{
     render::PlatformRenderer,
-    utils::{emod, lerpf, rand},
+    utils::{emod, lerpf, rand, ring_displace_back},
 };
 
 // Constants
@@ -32,10 +32,33 @@ const GAMEOVER_FONT_COLOR: u32 = SCORE_FONT_COLOR;
 const GAMEOVER_FONT_SIZE: u32 = SCORE_FONT_SIZE;
 const RANDOM_EGG_MAX_ATTEMPTS: u32 = 1000;
 const SNAKE_CAP: usize = (ROWS * COLS) as usize;
+const DIR_QUEUE_CAP: usize = 3 as usize;
 const SNAKE_INIT_ROW: i32 = ROWS / 2;
 const DIR_LENS: usize = 4;
+const KEY_LEFT: &str = "a";
+const KEY_RIGHT: &str = "d";
+const KEY_UP: &str = "w";
+const KEY_DOWN: &str = "s";
+const KEY_ACCEPT: &str = " ";
+const KEY_RESTART: &str = "r";
+const GAMEOVER_EXPLOSION_RADIUS: f32 = 1000.0;
+const GAMEOVER_EXPLOSION_MAX_VEL: f32 = 200.0;
 
-#[derive(Clone, Copy)]
+struct DeadSnake {
+    items: Vec<Rect>,
+    vels: Vec<Vec2<f32>>,
+    masks: Vec<u8>,
+}
+
+impl DeadSnake {
+    fn reset(&mut self) {
+        self.items.clear();
+        self.vels.clear();
+        self.masks.clear();
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
 enum Direction {
     Right = 0,
     Up = 1,
@@ -44,7 +67,7 @@ enum Direction {
 }
 
 impl Direction {
-    pub const ALL: [Direction; 4] = [
+    const ALL: [Direction; 4] = [
         Direction::Right,
         Direction::Up,
         Direction::Left,
@@ -77,9 +100,9 @@ impl std::ops::Not for Direction {
 }
 
 enum State {
-    Gameplay,
+    GamePlay,
     Pause,
-    Gameover,
+    GameOver,
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
@@ -168,6 +191,13 @@ impl Cell {
         self.x = emod(self.x, COLS);
         self.y = emod(self.y, ROWS);
     }
+
+    fn center(&self) -> Vec2<f32> {
+        Vec2 {
+            x: self.x as f32 * CELL_SIZE as f32 + CELL_SIZE as f32 / 2.0,
+            y: self.y as f32 * CELL_SIZE as f32 + CELL_SIZE as f32 / 2.0,
+        }
+    }
 }
 
 struct Sides {
@@ -179,6 +209,16 @@ impl Sides {
         let d = self.lens[dir as usize] - self.lens[!dir as usize];
         self.lens[dir as usize] += lerpf(0.0, d, t);
         self.lens[!dir as usize] += lerpf(0.0, d, t);
+    }
+
+    fn center(&self) -> Vec2<f32> {
+        Vec2 {
+            x: self.lens[Direction::Left as usize]
+                + (self.lens[Direction::Right as usize] - self.lens[Direction::Left as usize])
+                    * 0.5,
+            y: self.lens[Direction::Up as usize]
+                + (self.lens[Direction::Down as usize] - self.lens[Direction::Up as usize]) * 0.5,
+        }
     }
 }
 
@@ -199,16 +239,16 @@ impl From<&Rect> for Sides {
 }
 
 struct Snake {
-    body: VecDeque<Cell>,
+    items: VecDeque<Cell>,
 }
 
 impl Snake {
     fn contains_cell(&self, cell: &Cell) -> bool {
-        self.body.contains(cell)
+        self.items.contains(cell)
     }
 
     fn size(&self) -> usize {
-        self.body.len()
+        self.items.len()
     }
 }
 
@@ -217,18 +257,19 @@ pub struct Game<P: PlatformRenderer> {
     height: u32,
 
     dir: Direction,
+    next_dirs: VecDeque<Direction>,
+
     state: State,
     score: u32,
     step_cooldown: f32,
-
-    snake: Snake,
-    egg: Cell,
-
+    eating_egg: bool,
     camera_pos: Vec2<f32>,
 
-    platform_renderer: P,
+    snake: Snake,
+    dead_snake: DeadSnake,
+    egg: Cell,
 
-    eating_egg: bool,
+    platform_renderer: P,
 
     #[cfg(feature = "dev")]
     dt_scale: f32,
@@ -240,10 +281,10 @@ impl<P: PlatformRenderer> Game<P> {
             width: 0,
             height: 0,
             dir: Direction::Right,
-            state: State::Gameplay,
+            state: State::GamePlay,
             score: 0,
             snake: Snake {
-                body: VecDeque::with_capacity(SNAKE_CAP),
+                items: VecDeque::with_capacity(SNAKE_CAP),
             },
             camera_pos: Vec2::default(),
             platform_renderer,
@@ -252,10 +293,83 @@ impl<P: PlatformRenderer> Game<P> {
             step_cooldown: 0.0,
             #[cfg(feature = "dev")]
             dt_scale: 0.0,
+            next_dirs: VecDeque::with_capacity(DIR_QUEUE_CAP),
+            dead_snake: DeadSnake {
+                items: Vec::new(),
+                vels: Vec::new(),
+                masks: Vec::new(),
+            },
+        }
+    }
+
+    fn reset(&mut self) {
+        let platform_renderer = self.platform_renderer.clone();
+        *self = Self::new(platform_renderer);
+    }
+
+    pub fn keydown(&mut self, key: &str) {
+        #[cfg(feature = "dev")]
+        {
+            const DEV_DT_SCALE_STEP: f32 = 0.05;
+            match key {
+                "z" => {
+                    self.dt_scale -= DEV_DT_SCALE_STEP;
+                    if self.dt_scale < 0.0 {
+                        self.dt_scale = 0.0;
+                    }
+                    console::log_1(&format!("dt scale = {}", self.dt_scale).into());
+                }
+                "x" => {
+                    self.dt_scale += DEV_DT_SCALE_STEP;
+                    console::log_1(&format!("dt scale = {}", self.dt_scale).into());
+                }
+                "c" => {
+                    self.dt_scale = 1.0;
+                    console::log_1(&format!("dt scale = {}", self.dt_scale).into());
+                }
+                _ => {}
+            }
+        }
+
+        match self.state {
+            State::GamePlay => match key {
+                KEY_UP => {
+                    ring_displace_back(&mut self.next_dirs, Direction::Up, DIR_QUEUE_CAP);
+                }
+                KEY_DOWN => {
+                    ring_displace_back(&mut self.next_dirs, Direction::Down, DIR_QUEUE_CAP);
+                }
+                KEY_LEFT => {
+                    ring_displace_back(&mut self.next_dirs, Direction::Left, DIR_QUEUE_CAP);
+                }
+                KEY_RIGHT => {
+                    ring_displace_back(&mut self.next_dirs, Direction::Right, DIR_QUEUE_CAP);
+                }
+                KEY_ACCEPT => {
+                    self.state = State::Pause;
+                }
+                KEY_RESTART => {
+                    self.restart(self.width, self.height);
+                }
+                _ => {}
+            },
+            State::Pause => match key {
+                KEY_ACCEPT => {
+                    self.state = State::GamePlay;
+                }
+                KEY_RESTART => {
+                    self.restart(self.width, self.height);
+                }
+                _ => {}
+            },
+            State::GameOver => {
+                self.restart(self.width, self.height);
+            }
         }
     }
 
     pub fn restart(&mut self, width: u32, height: u32) {
+        self.reset();
         self.width = width;
         self.height = height;
 
@@ -267,7 +381,7 @@ impl<P: PlatformRenderer> Game<P> {
         self.camera_pos.x = width as f32 / 2.0;
         self.camera_pos.y = height as f32 / 2.0;
 
-        self.state = State::Gameplay;
+        self.state = State::GamePlay;
         self.dir = Direction::Right;
         self.score = 0;
 
@@ -276,8 +390,9 @@ impl<P: PlatformRenderer> Game<P> {
                 x: i as i32,
                 y: SNAKE_INIT_ROW,
             };
-            self.snake.body.push_back(head);
+            self.snake.items.push_back(head);
         }
+        self.dead_snake.reset();
 
         self.random_egg(true);
     }
@@ -290,52 +405,158 @@ impl<P: PlatformRenderer> Game<P> {
         }
 
         match self.state {
-            State::Gameplay => {
+            State::GamePlay => {
                 self.step_cooldown -= dt;
                 if self.step_cooldown > 0.0 {
                     return;
                 }
 
-                let next_head = self.snake.body.back().unwrap().advance(self.dir);
-                self.snake.body.push_back(next_head);
-                self.snake.body.pop_front();
-                self.eating_egg = false;
+                if !self.next_dirs.is_empty() {
+                    if !self.dir != *self.next_dirs.front().unwrap() {
+                        self.dir = *self.next_dirs.front().unwrap();
+                    }
+                    self.next_dirs.pop_front();
+                }
+
+                let next_head = self.snake.items.back().unwrap().advance(self.dir);
+
+                if next_head == self.egg {
+                    self.snake.items.push_back(next_head);
+                    self.random_egg(false);
+                    self.eating_egg = true;
+                    self.score += 1;
+                } else {
+                    if self.snake.contains_cell(&next_head) {
+                        self.step_cooldown = 0.0;
+                        self.state = State::GameOver;
+                        self.init_dead_snake(&next_head);
+                        return;
+                    } else {
+                        self.snake.items.push_back(next_head);
+                        self.snake.items.pop_front();
+                        self.eating_egg = false;
+                    }
+                }
 
                 self.step_cooldown = STEP_INTERVAL;
             }
             State::Pause => {}
-            State::Gameover => {}
+            State::GameOver => {
+                for i in 1..self.dead_snake.items.len() {
+                    self.dead_snake.vels[i].x *= 0.99;
+                    self.dead_snake.vels[i].y *= 0.99;
+                    self.dead_snake.items[i].x += self.dead_snake.vels[i].x * dt;
+                    self.dead_snake.items[i].y += self.dead_snake.vels[i].y * dt;
+                }
+            }
         }
+    }
+
+    fn score_text(&self) -> String {
+        format!("Score: {}", self.score)
     }
 
     pub fn render(&self) {
         match self.state {
-            State::Gameplay => {
+            State::GamePlay => {
                 self.background_render();
                 self.egg_render();
                 self.snake_render();
+                self.fill_text(
+                    SCORE_PADDING,
+                    SCORE_PADDING,
+                    &self.score_text(),
+                    SCORE_FONT_SIZE,
+                    SCORE_FONT_COLOR,
+                );
             }
-            State::Pause => {}
-            State::Gameover => {}
+            State::Pause => {
+                self.background_render();
+                self.egg_render();
+                self.snake_render();
+                self.fill_text(
+                    SCORE_PADDING,
+                    SCORE_PADDING,
+                    &self.score_text(),
+                    SCORE_FONT_SIZE,
+                    SCORE_FONT_COLOR,
+                );
+                self.fill_text(
+                    self.camera_pos.x as i32,
+                    self.camera_pos.y as i32,
+                    "Pause",
+                    PAUSE_FONT_SIZE,
+                    PAUSE_FONT_COLOR,
+                );
+            }
+            State::GameOver => {
+                self.background_render();
+                self.egg_render();
+                self.dead_snake_render();
+                self.fill_text(
+                    SCORE_PADDING,
+                    SCORE_PADDING,
+                    &self.score_text(),
+                    SCORE_FONT_SIZE,
+                    SCORE_FONT_COLOR,
+                );
+                self.fill_text(
+                    self.camera_pos.x as i32,
+                    self.camera_pos.y as i32,
+                    "Game Over",
+                    GAMEOVER_FONT_SIZE,
+                    GAMEOVER_FONT_COLOR,
+                );
+            }
+        }
+
+        #[cfg(feature = "dev")]
+        {
+            self.fill_text(
+                self.width as i32 - SCORE_PADDING * 5,
+                SCORE_PADDING,
+                "Dev",
+                SCORE_FONT_SIZE,
+                SCORE_FONT_COLOR,
+            );
+            self.stroke_rect(
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    w: (COLS * CELL_SIZE) as f32,
+                    h: (ROWS * CELL_SIZE) as f32,
+                },
+                0xFF0000FF,
+            );
+        }
+    }
+
+    fn dead_snake_render(&self) {
+        for i in 1..self.dead_snake.items.len() {
+            self.fill_rect(self.dead_snake.items.get(i).unwrap(), SNAKE_BODY_COLOR);
+            self.fill_fractured_spine(
+                self.dead_snake.items.get(i).unwrap().into(),
+                *self.dead_snake.masks.get(i).unwrap(),
+            );
         }
     }
 
     fn snake_render(&self) {
         let t = self.step_cooldown / STEP_INTERVAL;
 
-        let head_cell = self.snake.body.back().unwrap();
+        let head_cell = self.snake.items.back().unwrap();
         let head_dir = self.dir;
         let mut head_slide_sides: Sides = (&Rect::from(head_cell)).into();
         head_slide_sides.adjust_2_slide_sides(!head_dir, t);
 
-        let tail_cell = self.snake.body.front().unwrap();
+        let tail_cell = self.snake.items.front().unwrap();
         let mut tail_slide_sides: Sides = (&Rect::from(tail_cell)).into();
         let tail_dir = self
             .snake
-            .body
+            .items
             .get(0)
             .unwrap()
-            .determine_dir(self.snake.body.get(1).unwrap());
+            .determine_dir(self.snake.items.get(1).unwrap());
         tail_slide_sides
             .adjust_2_slide_sides(tail_dir, if self.eating_egg { 1.0 } else { 1.0 - t });
 
@@ -348,20 +569,44 @@ impl<P: PlatformRenderer> Game<P> {
             );
         }
 
-        // self.fill_sides(&head_slide_sides, SNAKE_HEAD_COLOR);
-        // self.fill_sides(&tail_slide_sides, SNAKE_TAIL_COLOR);
-        self.fill_sides(&head_slide_sides, SNAKE_BODY_COLOR);
-        self.fill_sides(&tail_slide_sides, SNAKE_BODY_COLOR);
+        self.fill_sides(&head_slide_sides, SNAKE_HEAD_COLOR);
+        self.fill_sides(&tail_slide_sides, SNAKE_TAIL_COLOR);
 
         for i in 1..self.snake.size() - 1 {
-            self.fill_cell(self.snake.body.get(i).unwrap(), SNAKE_BODY_COLOR, 1.0);
+            self.fill_cell(self.snake.items.get(i).unwrap(), SNAKE_BODY_COLOR, 1.0);
+        }
+
+        // body spine
+        for i in 1..self.snake.size() - 2 {
+            let cell1 = self.snake.items.get(i).unwrap();
+            let cell2 = self.snake.items.get(i + 1).unwrap();
+
+            self.fill_spine(cell1.center(), cell1.determine_dir(cell2), CELL_SIZE as f32);
+            self.fill_spine(cell2.center(), cell2.determine_dir(cell1), CELL_SIZE as f32);
+        }
+
+        // head spine
+        {
+            let cell1 = self.snake.items.get(self.snake.size() - 2).unwrap();
+            let cell2 = self.snake.items.get(self.snake.size() - 1).unwrap();
+            let len = lerpf(0.0, CELL_SIZE as f32, 1.0 - t);
+            self.fill_spine(cell1.center(), cell1.determine_dir(cell2), len);
+            self.fill_spine((*cell2 + (!head_dir).into()).center(), head_dir, len);
+        }
+
+        // tail spine
+        {
+            let cell1 = self.snake.items.get(1).unwrap();
+            let cell2 = self.snake.items.get(0).unwrap();
+            let len = lerpf(0.0, CELL_SIZE as f32, if self.eating_egg { 0.0 } else { t });
+            self.fill_spine(cell1.center(), cell1.determine_dir(cell2), len);
+            self.fill_spine((*cell2 + tail_dir.into()).center(), !tail_dir, len);
         }
 
         #[cfg(feature = "dev")]
         {
             for i in 0..self.snake.size() {
-                console::log_1(&"test".into());
-                self.stroke_rect(self.snake.body.get(i).unwrap().into(), 0xFF0000FF);
+                self.stroke_rect(self.snake.items.get(i).unwrap().into(), 0xFF0000FF);
             }
         }
     }
@@ -377,7 +622,7 @@ impl<P: PlatformRenderer> Game<P> {
     }
 
     fn fill_sides(&self, sides: &Sides, color: u32) {
-        self.fill_rect(sides.into(), color);
+        self.fill_rect(&sides.into(), color);
     }
 
     fn random_egg(&mut self, first: bool) {
@@ -401,6 +646,14 @@ impl<P: PlatformRenderer> Game<P> {
 
     fn egg_render(&self) {
         if self.eating_egg {
+            let t = 1.0 - self.step_cooldown / STEP_INTERVAL;
+            let a = lerpf(1.5, 1.0, t * t);
+            self.fill_cell(&self.egg, self.color_alpha(EGG_BODY_COLOR, t * t), a);
+            self.fill_cell(
+                &self.egg,
+                self.color_alpha(EGG_SPINE_COLOR, t * t),
+                a * (SNAKE_SPINE_THICKNESS_PERCENT * 2.0),
+            );
         } else {
             self.fill_cell(&self.egg, EGG_BODY_COLOR, 1.0);
             self.fill_cell(
@@ -409,6 +662,12 @@ impl<P: PlatformRenderer> Game<P> {
                 SNAKE_SPINE_THICKNESS_PERCENT * 2.0,
             );
         }
+    }
+
+    fn color_alpha(&self, color: u32, a: f32) -> u32 {
+        let rgb = color & 0x00FF_FFFF;
+        let alpha = ((a.clamp(0.0, 1.0) * 255.0).round() as u32) << 24;
+        rgb | alpha
     }
 
     fn background_render(&self) {
@@ -441,10 +700,10 @@ impl<P: PlatformRenderer> Game<P> {
     }
 
     fn fill_cell(&self, cell: &Cell, color: u32, a: f32) {
-        self.fill_rect(self.scale_rect(cell.into(), a), color);
+        self.fill_rect(&self.scale_rect(cell.into(), a), color);
     }
 
-    fn fill_rect(&self, rect: Rect, color: u32) {
+    fn fill_rect(&self, rect: &Rect, color: u32) {
         self.platform_renderer.fill_rect(
             (rect.x - self.camera_pos.x + self.width as f32 / 2.0) as i32,
             (rect.y - self.camera_pos.y + self.height as f32 / 2.0) as i32,
@@ -452,5 +711,83 @@ impl<P: PlatformRenderer> Game<P> {
             rect.h as i32,
             color,
         );
+    }
+
+    fn fill_text(&self, x: i32, y: i32, text: &str, size: u32, color: u32) {
+        self.platform_renderer.fill_text(x, y, text, size, color);
+    }
+
+    fn fill_spine(&self, center: Vec2<f32>, dir: Direction, len: f32) {
+        let thicc = CELL_SIZE as f32 * SNAKE_SPINE_THICKNESS_PERCENT;
+        let mut sides = Sides {
+            lens: vec![0.0; DIR_LENS],
+        };
+        sides.lens[Direction::Left as usize] = center.x - thicc;
+        sides.lens[Direction::Right as usize] = center.x + thicc;
+        sides.lens[Direction::Up as usize] = center.y - thicc;
+        sides.lens[Direction::Down as usize] = center.y + thicc;
+
+        if dir == Direction::Right || dir == Direction::Down {
+            sides.lens[dir as usize] += len;
+        }
+        if dir == Direction::Left || dir == Direction::Up {
+            sides.lens[dir as usize] -= len;
+        }
+        self.fill_sides(&sides, SNAKE_SPINE_COLOR);
+    }
+
+    fn fill_fractured_spine(&self, sides: Sides, mask: u8) {
+        let thicc = CELL_SIZE as f32 * SNAKE_SPINE_THICKNESS_PERCENT;
+        let center = sides.center();
+        for dir in Direction::ALL {
+            if (mask & (1 << dir as u8)) != 0 {
+                let mut arm = Sides {
+                    lens: vec![0.0; DIR_LENS],
+                };
+                arm.lens[Direction::Left as usize] = center.x - thicc;
+                arm.lens[Direction::Right as usize] = center.x + thicc;
+                arm.lens[Direction::Up as usize] = center.y - thicc;
+                arm.lens[Direction::Down as usize] = center.y + thicc;
+                arm.lens[dir as usize] = sides.lens[dir as usize];
+                self.fill_sides(&arm, SNAKE_SPINE_COLOR);
+            }
+        }
+    }
+
+    fn init_dead_snake(&mut self, next_head: &Cell) {
+        let head_center = next_head.center();
+        self.dead_snake.reset();
+
+        for (i, cell) in self.snake.items.iter().enumerate() {
+            self.dead_snake.items.push(cell.into());
+
+            if *cell != *next_head {
+                let cell_center = cell.center();
+                let vel_vec = cell_center - head_center;
+                let vel_len = (vel_vec.x.powi(2) + vel_vec.y.powi(2)).sqrt();
+                let t = (vel_len / GAMEOVER_EXPLOSION_RADIUS).clamp(0.0, 1.0);
+                let t = 1.0 - t;
+                let noise_x = (rand() % 1000) as f32 * 0.01;
+                let noise_y = (rand() % 1000) as f32 * 0.01;
+                let vel_x = (vel_vec.x / vel_len * GAMEOVER_EXPLOSION_MAX_VEL * t) + noise_x;
+                let vel_y = (vel_vec.y / vel_len * GAMEOVER_EXPLOSION_MAX_VEL * t) + noise_y;
+                self.dead_snake.vels.push(Vec2 { x: vel_x, y: vel_y });
+            } else {
+                self.dead_snake.vels.push(Vec2 { x: 0.0, y: 0.0 }); // 头部不动
+            }
+
+            let mut mask = 0;
+            if i > 0 {
+                let prev_cell = self.snake.items[i - 1];
+                let dir = cell.determine_dir(&prev_cell);
+                mask |= 1 << dir as u8;
+            }
+            if i < self.snake.items.len() - 1 {
+                let next_cell = self.snake.items[i + 1];
+                let dir = cell.determine_dir(&next_cell);
+                mask |= 1 << dir as u8;
+            }
+            self.dead_snake.masks.push(mask);
+        }
     }
 }
